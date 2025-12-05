@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Builder Tool</title>
     
+    <!-- SEO Meta Tags -->
+    <title>PDF Page Builder - Merge & Reorder PDF Pages Securely</title>
+    <meta name="description" content="Free online tool to merge specific pages from multiple PDFs. Secure, client-side processing (no uploads), drag-and-drop interface, and visual preview.">
+    <meta name="keywords" content="merge PDF, combine PDF, PDF builder, split PDF, client-side PDF, secure PDF tool, free PDF merger, javascript PDF">
+    <meta name="author" content="PDF Builder">
+
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -31,7 +36,7 @@
             height: 100vh;
             background-color: var(--bg-color);
             color: #333;
-            overflow: hidden; /* Prevent body scroll */
+            overflow: hidden;
         }
 
         /* Header */
@@ -88,7 +93,6 @@
         /* Workspace */
         .workspace {
             display: flex;
-            /* Calculate exact remaining height */
             height: calc(100vh - var(--header-height) - var(--toolbar-height));
             overflow: hidden;
         }
@@ -100,11 +104,9 @@
             border-right: 1px solid #ccc;
             padding: 15px;
             flex-shrink: 0;
-            
-            /* Scrolling Fixes */
             overflow-y: auto; 
             height: 100%;
-            display: block; /* Ensure block layout for scrolling */
+            display: block;
         }
 
         .source-file {
@@ -112,7 +114,7 @@
             border-radius: 6px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
-            margin-bottom: 15px; /* Spacing between files */
+            margin-bottom: 15px;
         }
 
         .source-header {
@@ -141,7 +143,7 @@
             flex-wrap: wrap;
             gap: 10px;
             background-color: #fafafa;
-            justify-content: center; /* Center cards if they are wide */
+            justify-content: center;
         }
 
         /* Right Panel (Target) */
@@ -152,7 +154,7 @@
             display: flex;
             flex-direction: column;
             height: 100%;
-            overflow: hidden; /* Internal scroll handles content */
+            overflow: hidden;
         }
 
         .target-header { margin-bottom: 10px; color: #555; font-size: 1.1rem; flex-shrink: 0; }
@@ -167,7 +169,7 @@
             border-radius: 8px;
             align-content: flex-start;
             background-color: #fdfdfd;
-            overflow-y: auto; /* Scroll inside the drop area */
+            overflow-y: auto;
         }
 
         #new-doc-area.drag-over { background-color: #eef6ff; border-color: var(--primary-color); }
@@ -186,7 +188,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
-        /* Dynamic Widths based on sliders */
         .sources-panel .page-card { width: var(--source-card-width); }
         .target-panel .page-card { width: var(--target-card-width); }
 
@@ -232,7 +233,6 @@
             font-weight: bold;
         }
 
-        /* Show remove button only in target area */
         #new-doc-area .page-card .remove-btn { display: block; }
 
         /* Loading Overlay */
@@ -282,12 +282,10 @@
 <div class="toolbar">
     <div class="zoom-control">
         <label>Source Zoom:</label>
-        <!-- Max increased to 500 -->
         <input type="range" id="source-zoom" min="80" max="500" value="150">
     </div>
     <div class="zoom-control">
         <label>Target Zoom:</label>
-        <!-- Max increased to 500 -->
         <input type="range" id="target-zoom" min="80" max="500" value="150">
     </div>
 </div>
@@ -331,10 +329,10 @@
     });
 
     // Data Store
-    const pdfDataStore = {}; // Stores ArrayBuffers
+    const pdfDataStore = {}; 
     let fileCounter = 0;
 
-    // Initialize Sortable for the target area
+    // Initialize Sortable
     new Sortable(newDocArea, {
         group: 'shared',
         animation: 150,
@@ -345,7 +343,6 @@
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
-        // Clear empty message
         if (sourcesContainer.querySelector('.empty-msg')) {
             sourcesContainer.innerHTML = '';
         }
@@ -369,20 +366,15 @@
     async function processUploadedFile(file) {
         const fileId = `file_${fileCounter++}`;
         
-        // 1. Read file as ArrayBuffer
         const originalBuffer = await file.arrayBuffer();
-        
-        // 2. Clone buffer for safe keeping
+        // Clone buffer for safe keeping
         pdfDataStore[fileId] = originalBuffer.slice(0);
 
-        // 3. Load PDF for rendering
         const pdfDoc = await pdfjsLib.getDocument(originalBuffer).promise;
 
-        // Create UI Container for File
         const fileDiv = document.createElement('div');
         fileDiv.className = 'source-file';
         
-        // Header with collapse logic
         const headerDiv = document.createElement('div');
         headerDiv.className = 'source-header';
         headerDiv.innerHTML = `
@@ -401,8 +393,7 @@
         fileDiv.appendChild(pageListDiv);
         sourcesContainer.appendChild(fileDiv);
 
-        // Render Pages
-        // Increased scale to 0.6 to support larger zoom (up to 500px width) better
+        // Render Pages (Scale 0.6 for better quality on zoom)
         const renderScale = 0.6; 
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -416,13 +407,11 @@
 
             await page.render({ canvasContext: context, viewport: viewport }).promise;
 
-            // Create Card
             const card = document.createElement('div');
             card.className = 'page-card';
             card.dataset.fileId = fileId;
-            card.dataset.pageIndex = i - 1; // 0-based index for pdf-lib
+            card.dataset.pageIndex = i - 1; 
 
-            // Remove Button
             const removeBtn = document.createElement('div');
             removeBtn.className = 'remove-btn';
             removeBtn.innerHTML = '&times;';
@@ -438,7 +427,6 @@
             pageListDiv.appendChild(card);
         }
 
-        // Make list draggable
         new Sortable(pageListDiv, {
             group: {
                 name: 'shared',
@@ -482,7 +470,6 @@
 
             const pdfBytes = await newPdf.save();
             
-            // Download
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
