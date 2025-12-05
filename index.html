@@ -378,10 +378,7 @@
         fileDiv.append(header, pageList);
         sourcesContainer.append(fileDiv);
 
-        // Рендерим с качеством 1.5. Это хороший баланс.
-        // В Source оно будет уменьшено CSS-ом, в Target увеличено.
-        // При сильном зуме качество сохранится.
-        const renderScale = 1.5; 
+        const renderScale = 1.0; 
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
             const page = await pdfDoc.getPage(i);
