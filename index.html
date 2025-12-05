@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Page Builder - Final Fix</title>
+    <title>PDF Page Builder</title>
     
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
@@ -12,12 +12,7 @@
 
     <style>
         :root {
-            /* 
-               Логика размеров:
-               Рендерим картинку в качестве 1.5.
-               Слева показываем её сжатой до ширины ~120px (визуально как scale 1.0).
-               Справа показываем её шириной ~180px (визуально как scale 1.5).
-            */
+            /* Переменные для зума карточек */
             --source-card-width: 130px; 
             --target-card-width: 200px; 
             
@@ -52,7 +47,7 @@
             flex-shrink: 0;
         }
         
-        .header-actions { display: flex; gap: 10px; }
+        .header-actions { display: flex; gap: 15px; align-items: center; }
         
         .btn {
             padding: 8px 15px;
@@ -62,11 +57,36 @@
             color: white;
             font-weight: 500;
             font-size: 0.9rem;
+            white-space: nowrap;
         }
         .btn-primary { background: var(--primary-color); display: flex; align-items: center; }
         .btn-success { background: #28a745; }
         .btn:hover { opacity: 0.9; }
         input[type="file"] { display: none; }
+
+        /* Стили для селекта размера */
+        .size-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f9fa;
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .size-selector select {
+            padding: 4px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 0.9rem;
+            outline: none;
+            cursor: pointer;
+        }
+        .size-selector label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #555;
+        }
 
         /* Toolbar */
         .toolbar {
@@ -85,7 +105,7 @@
         .workspace {
             display: flex;
             height: calc(100vh - var(--header-height) - var(--toolbar-height));
-            overflow: hidden; /* Важно для дочерних скроллов */
+            overflow: hidden;
         }
 
         /* Left Panel (Sources) */
@@ -93,7 +113,6 @@
             width: 450px;
             background: #f8f9fa;
             border-right: 1px solid #ccc;
-            /* Исправление скролла: обычный блок с прокруткой */
             overflow-y: auto; 
             padding: 15px;
             flex-shrink: 0;
@@ -172,7 +191,6 @@
             transition: width 0.1s ease;
         }
 
-        /* Применение переменных ширины */
         .sources-panel .page-card { width: var(--source-card-width); }
         .target-panel .page-card { width: var(--target-card-width); }
 
@@ -193,7 +211,7 @@
             border-top: 1px solid #eee;
         }
 
-        /* Кнопка удаления (только справа) */
+        /* Кнопка удаления */
         .remove-btn {
             position: absolute;
             top: -8px; right: -8px;
@@ -208,7 +226,7 @@
         }
         #new-doc-area .page-card .remove-btn { display: block; }
 
-        /* Счетчик (только слева) */
+        /* Счетчик */
         .usage-counter {
             position: absolute;
             top: -8px; left: -8px;
@@ -221,7 +239,6 @@
             z-index: 10;
             display: none;
         }
-        /* В правой панели счетчик не нужен */
         #new-doc-area .page-card .usage-counter { display: none !important; }
 
         /* Loader */
@@ -259,6 +276,18 @@
             <span>+ Add PDF</span>
             <input type="file" id="file-input" multiple accept="application/pdf">
         </label>
+        
+        <!-- Выбор целевого размера -->
+        <div class="size-selector">
+            <label for="target-width">Target Width:</label>
+            <select id="target-width">
+                <option value="none">Original Size (No Scaling)</option>
+                <option value="1920">Full HD (1920pt) - Best for Screens</option>
+                <option value="595.28">A4 Portrait (595pt)</option>
+                <option value="841.89">A4 Landscape (842pt)</option>
+            </select>
+        </div>
+        
         <button class="btn btn-success" onclick="generatePDF()">Download PDF</button>
     </div>
 </header>
@@ -266,7 +295,6 @@
 <div class="toolbar">
     <div class="zoom-control">
         <label>Source Zoom:</label>
-        <!-- Диапазон увеличен -->
         <input type="range" id="source-zoom" min="80" max="400" value="130">
     </div>
     <div class="zoom-control">
@@ -317,8 +345,6 @@
         ghostClass: 'sortable-ghost',
         
         onAdd: function (evt) {
-            // Удаляем ID у копии, чтобы не мусорить DOM,
-            // хотя для логики счетчиков это теперь не критично.
             evt.item.removeAttribute('id');
             updatePageCounters();
         },
@@ -327,7 +353,7 @@
         }
     });
 
-    // Удаление страниц (делегирование)
+    // Удаление страниц
     newDocArea.addEventListener('click', function(e) {
         if (e.target.classList.contains('remove-btn')) {
             e.target.closest('.page-card').remove();
@@ -378,6 +404,7 @@
         fileDiv.append(header, pageList);
         sourcesContainer.append(fileDiv);
 
+        // Для предпросмотра качество можно оставить 1.0 (для скорости)
         const renderScale = 1.0; 
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -394,7 +421,6 @@
             const card = document.createElement('div');
             card.className = 'page-card';
             
-            // Записываем данные для идентификации
             card.dataset.fid = fileId;
             card.dataset.pid = i;
 
@@ -403,22 +429,14 @@
                 <div class="usage-counter">0</div>
                 <div class="page-number">Page ${i}</div>
             `;
-            // Вставляем канвас
             card.insertBefore(canvas, card.querySelector('.page-number'));
             pageList.appendChild(card);
         }
 
-        // --- Sortable для исходников ---
         new Sortable(pageList, {
-            group: {
-                name: 'shared',
-                pull: 'clone',
-                put: false
-            },
+            group: { name: 'shared', pull: 'clone', put: false },
             sort: false,
             animation: 150,
-            
-            // КОПИРОВАНИЕ CANVAS
             onClone: function(evt) {
                 const origCanvas = evt.item.querySelector('canvas');
                 const cloneCanvas = evt.clone.querySelector('canvas');
@@ -431,48 +449,40 @@
         });
     }
 
-    // --- Обновление счетчиков (Надежный метод) ---
+    // --- Обновление счетчиков ---
     function updatePageCounters() {
-        // 1. Собираем статистику из правой панели
         const targetCards = newDocArea.querySelectorAll('.page-card');
-        const counts = {}; // "fileId-pageId" -> количество
-
+        const counts = {}; 
         targetCards.forEach(card => {
             const key = `${card.dataset.fid}-${card.dataset.pid}`;
             counts[key] = (counts[key] || 0) + 1;
         });
 
-        // 2. Проходим по всем карточкам в левой панели и обновляем их
-        // Использование querySelectorAll внутри .sources-panel гарантирует, 
-        // что мы находим визуально отображаемые элементы (клоны или оригиналы)
         const sourceCards = document.querySelectorAll('.sources-panel .page-card');
-        
         sourceCards.forEach(card => {
             const key = `${card.dataset.fid}-${card.dataset.pid}`;
             const count = counts[key] || 0;
-            
             const badge = card.querySelector('.usage-counter');
             if (badge) {
                 badge.innerText = count;
                 badge.style.display = count > 0 ? 'block' : 'none';
             }
-            
-            // Опционально: подсветка самой карточки
-            if (count > 0) {
-                card.style.borderColor = '#28a745';
-            } else {
-                card.style.borderColor = '#ddd';
-            }
+            card.style.borderColor = count > 0 ? '#28a745' : '#ddd';
         });
     }
 
-    // --- Генерация PDF ---
+    // --- Генерация PDF (с сохранением качества) ---
     async function generatePDF() {
         const cards = newDocArea.querySelectorAll('.page-card');
         if (!cards.length) {
             alert("New document is empty!");
             return;
         }
+
+        // Получаем выбранную ширину из Select
+        const selectedWidth = document.getElementById('target-width').value;
+        const shouldScale = selectedWidth !== 'none';
+        const targetWidthVal = parseFloat(selectedWidth);
 
         loader.style.display = 'flex';
         try {
@@ -488,8 +498,23 @@
                     loadedDocs[fid] = await PDFDocument.load(pdfDataStore[fid]);
                 }
                 
-                // copyPages использует индекс 0-based, а у нас pid 1-based
-                const [copiedPage] = await newPdf.copyPages(loadedDocs[fid], [pid - 1]);
+                const srcDoc = loadedDocs[fid];
+                const [copiedPage] = await newPdf.copyPages(srcDoc, [pid - 1]);
+
+                // --- ЛОГИКА МАСШТАБИРОВАНИЯ БЕЗ ПОТЕРИ КАЧЕСТВА ---
+                if (shouldScale) {
+                    const { width, height } = copiedPage.getSize();
+                    // Считаем во сколько раз нужно изменить страницу
+                    const scaleFactor = targetWidthVal / width;
+
+                    // 1. Масштабируем содержимое (векторы и картинки НЕ пережимаются, просто меняется масштаб отрисовки)
+                    copiedPage.scaleContent(scaleFactor, scaleFactor);
+
+                    // 2. Меняем размер холста
+                    copiedPage.setSize(targetWidthVal, height * scaleFactor);
+                }
+                // ---------------------------------------------------
+
                 newPdf.addPage(copiedPage);
             }
 
@@ -497,11 +522,11 @@
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = 'merged.pdf';
+            link.download = 'presentation_merged.pdf';
             link.click();
         } catch (e) {
             console.error(e);
-            alert("Error creating PDF");
+            alert("Error creating PDF: " + e.message);
         } finally {
             loader.style.display = 'none';
         }
