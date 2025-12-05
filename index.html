@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конструктор PDF</title>
+    
+    <!-- Подключение стилей и библиотек -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        header {
+            background-color: #fff;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        h1 { margin: 0; font-size: 1.2rem; color: #333; }
+
+        .controls { display: flex; gap: 10px; }
+
+        button, .file-upload-label {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .file-upload-label {
+            background-color: #007bff;
+            color: white;
+            display: inline-block;
+        }
+        .file-upload-label:hover { background-color: #0056b3; }
+        
+        #save-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        #save-btn:hover { background-color: #218838; }
+
+        input[type="file"] { display: none; }
+
+        /* Основная рабочая область */
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Левая панель (Источники) */
+        .sources-panel {
+            width: 350px;
+            background-color: #e9ecef;
+            border-right: 1px solid #ccc;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .source-file {
+            background: #fff;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .source-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            word-break: break-all;
+            color: #555;
+        }
+
+        .page-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            min-height: 50px;
+        }
+
+        /* Правая панель (Новый документ) */
+        .target-panel {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background-color: #fff;
+        }
+
+        #new-doc-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            min-height: 300px;
+            padding: 20px;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            align-content: flex-start;
+        }
+
+        #new-doc-area.drag-over {
+            background-color: #f8f9fa;
+            border-color: #007bff;
+        }
+
+        /* Карточка страницы */
+        .page-card {
+            width: 100px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: grab;
+            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .page-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+        }
+
+        .page-card canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-bottom: 1px solid #eee;
+        }
+
+        .page-number {
+            font-size: 0.75rem;
+            padding: 4px;
+            color: #666;
+        }
+
+        .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: red;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+            line-height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+
+        /* Показывать кнопку удаления только в целевой зоне */
+        #new-doc-area .page-card .remove-btn {
+            display: block;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            display: none;
+            font-size: 1.5rem;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loader">Обработка...</div>
+
+<header>
+    <h1>PDF Компоновщик</h1>
+    <div class="controls">
+        <label class="file-upload-label">
+            + Добавить PDF файлы
+            <input type="file" id="file-input" multiple accept="application/pdf">
+        </label>
+        <button id="save-btn" onclick="generatePDF()">Скачать результат</button>
+    </div>
+</header>
+
+<div class="workspace">
+    <!-- Область исходных файлов -->
+    <div class="sources-panel" id="sources-container">
+        <div style="text-align: center; color: #888; margin-top: 20px;">
+            Загрузите файлы, чтобы увидеть страницы здесь.
+        </div>
+    </div>
+
+    <!-- Область нового документа -->
+    <div class="target-panel">
+        <h2 style="margin-top: 0; font-size: 1rem; color: #555;">Новый документ (перетащите страницы сюда)</h2>
+        <div id="new-doc-area">
+            <!-- Сюда будут падать страницы -->
+        </div>
+    </div>
+</div>
+
+<script>
+    // Настройка worker для pdf.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const fileInput = document.getElementById('file-input');
+    const sourcesContainer = document.getElementById('sources-container');
+    const newDocArea = document.getElementById('new-doc-area');
+    const loader = document.getElementById('loader');
+
+    // Хранилище загруженных PDF (ArrayBuffer) для последующей сборки
+    // Ключ: ID файла, Значение: ArrayBuffer
+    const pdfDataStore = {};
+    let fileCounter = 0;
+
+    // Инициализация Sortable для целевой области (куда собираем)
+    new Sortable(newDocArea, {
+        group: 'shared', // Разрешаем прием элементов из других списков
+        animation: 150,
+        ghostClass: 'blue-background-class',
+        onAdd: function (evt) {
+            // Когда элемент добавлен, убедимся, что у него есть кнопка удаления
+            // (CSS сделает её видимой)
+        }
+    });
+
+    fileInput.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        // Очищаем приветственное сообщение, если оно есть
+        if (sourcesContainer.innerText.includes('Загрузите файлы')) {
+            sourcesContainer.innerHTML = '';
+        }
+
+        loader.style.display = 'flex';
+
+        for (const file of files) {
+            try {
+                await processUploadedFile(file);
+            } catch (err) {
+                console.error("Ошибка при обработке файла:", err);
+                alert(`Не удалось загрузить ${file.name}`);
+            }
+        }
+
+        loader.style.display = 'none';
+        fileInput.value = ''; // Сброс, чтобы можно было загрузить тот же файл снова
+    });
+
+    async function processUploadedFile(file) {
+        const fileId = `file_${fileCounter++}`;
+        const arrayBuffer = await file.arrayBuffer();
+        
+        // Сохраняем сырые данные для финальной сборки
+        pdfDataStore[fileId] = arrayBuffer;
+
+        // Загружаем PDF для рендеринга превью
+        const pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise;
+
+        // Создаем UI контейнер для файла
+        const fileDiv = document.createElement('div');
+        fileDiv.className = 'source-file';
+        fileDiv.innerHTML = `<div class="source-title">${file.name} (${pdfDoc.numPages} стр.)</div>`;
+        
+        const pageListDiv = document.createElement('div');
+        pageListDiv.className = 'page-list';
+        pageListDiv.id = `list-${fileId}`;
+
+        fileDiv.appendChild(pageListDiv);
+        sourcesContainer.appendChild(fileDiv);
+
+        // Рендерим каждую страницу
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const viewport = page.getViewport({ scale: 0.2 }); // Маленький масштаб для превью
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+            // Создаем карточку страницы
+            const card = document.createElement('div');
+            card.className = 'page-card';
+            // Важно: сохраняем метаданные в data-атрибуты
+            card.dataset.fileId = fileId;
+            card.dataset.pageIndex = i - 1; // pdf-lib использует 0-based индекс
+
+            // Кнопка удаления (будет видна только в правой панели)
+            const removeBtn = document.createElement('div');
+            removeBtn.className = 'remove-btn';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.onclick = function() { card.remove(); };
+
+            const pageNum = document.createElement('div');
+            pageNum.className = 'page-number';
+            pageNum.innerText = `Стр. ${i}`;
+
+            card.appendChild(removeBtn);
+            card.appendChild(canvas);
+            card.appendChild(pageNum);
+            pageListDiv.appendChild(card);
+        }
+
+        // Делаем список страниц перетаскиваемым
+        new Sortable(pageListDiv, {
+            group: {
+                name: 'shared',
+                pull: 'clone', // Копируем при перетаскивании, а не перемещаем
+                put: false // Нельзя класть обратно в источник
+            },
+            sort: false, // В источнике нельзя менять порядок
+            animation: 150
+        });
+    }
+
+    async function generatePDF() {
+        const cards = newDocArea.querySelectorAll('.page-card');
+        if (cards.length === 0) {
+            alert("Сначала перетащите страницы в область нового документа.");
+            return;
+        }
+
+        loader.style.display = 'flex';
+        loader.innerText = "Генерация PDF...";
+
+        try {
+            // Создаем новый документ
+            const { PDFDocument } = PDFLib;
+            const newPdf = await PDFDocument.create();
+
+            // Кэш для загруженных документов pdf-lib, чтобы не парсить один и тот же файл много раз
+            const loadedPdfDocs = {};
+
+            for (const card of cards) {
+                const fileId = card.dataset.fileId;
+                const pageIndex = parseInt(card.dataset.pageIndex);
+
+                // Если документ еще не загружен в pdf-lib, загружаем
+                if (!loadedPdfDocs[fileId]) {
+                    const arrayBuffer = pdfDataStore[fileId];
+                    loadedPdfDocs[fileId] = await PDFDocument.load(arrayBuffer);
+                }
+
+                const sourcePdf = loadedPdfDocs[fileId];
+                
+                // Копируем страницу. copyPages возвращает массив
+                const [copiedPage] = await newPdf.copyPages(sourcePdf, [pageIndex]);
+                newPdf.addPage(copiedPage);
+            }
+
+            // Сохраняем
+            const pdfBytes = await newPdf.save();
+
+            // Скачиваем
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'merged_document.pdf';
+            link.click();
+
+        } catch (err) {
+            console.error(err);
+            alert("Произошла ошибка при создании PDF.");
+        } finally {
+            loader.style.display = 'none';
+            loader.innerText = "Обработка...";
+        }
+    }
+</script>
+
+</body>
+</html>
