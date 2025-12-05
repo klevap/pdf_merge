@@ -3,13 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Page Builder - Final Fix</title>
     
-    <!-- SEO Meta Tags -->
-    <title>PDF Page Builder - Merge & Reorder PDF Pages Securely</title>
-    <meta name="description" content="Free online tool to merge specific pages from multiple PDFs. Secure, client-side processing (no uploads), drag-and-drop interface, and visual preview.">
-    <meta name="keywords" content="merge PDF, combine PDF, PDF builder, split PDF, client-side PDF, secure PDF tool, free PDF merger, javascript PDF">
-    <meta name="author" content="PDF Builder">
-
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -17,384 +12,376 @@
 
     <style>
         :root {
-            --source-card-width: 150px;
-            --target-card-width: 150px;
-            --bg-color: #f4f7f6;
-            --primary-color: #007bff;
+            /* 
+               Логика размеров:
+               Рендерим картинку в качестве 1.5.
+               Слева показываем её сжатой до ширины ~120px (визуально как scale 1.0).
+               Справа показываем её шириной ~180px (визуально как scale 1.5).
+            */
+            --source-card-width: 130px; 
+            --target-card-width: 200px; 
+            
             --header-height: 60px;
             --toolbar-height: 50px;
+            --primary-color: #007bff;
         }
 
         * { box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             margin: 0;
             padding: 0;
             display: flex;
             flex-direction: column;
             height: 100vh;
-            background-color: var(--bg-color);
-            color: #333;
+            background-color: #f4f7f6;
             overflow: hidden;
         }
 
         /* Header */
         header {
             height: var(--header-height);
-            background-color: #fff;
+            background: #fff;
             padding: 0 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
             z-index: 20;
             flex-shrink: 0;
         }
-
-        h1 { margin: 0; font-size: 1.4rem; color: #2c3e50; }
-
+        
         .header-actions { display: flex; gap: 10px; }
-
-        button, .btn {
-            padding: 8px 16px;
+        
+        .btn {
+            padding: 8px 15px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 0.9rem;
-            transition: background 0.2s;
+            color: white;
             font-weight: 500;
+            font-size: 0.9rem;
         }
-
-        .btn-primary { background-color: var(--primary-color); color: white; display: inline-flex; align-items: center; }
-        .btn-primary:hover { background-color: #0056b3; }
-        
-        .btn-success { background-color: #28a745; color: white; }
-        .btn-success:hover { background-color: #218838; }
-
+        .btn-primary { background: var(--primary-color); display: flex; align-items: center; }
+        .btn-success { background: #28a745; }
+        .btn:hover { opacity: 0.9; }
         input[type="file"] { display: none; }
 
-        /* Toolbar for Zoom */
+        /* Toolbar */
         .toolbar {
             height: var(--toolbar-height);
-            background-color: #e9ecef;
+            background: #e9ecef;
             display: flex;
             align-items: center;
             padding: 0 20px;
-            border-bottom: 1px solid #ddd;
-            gap: 30px;
-            font-size: 0.9rem;
+            border-bottom: 1px solid #ccc;
+            gap: 20px;
             flex-shrink: 0;
         }
-
-        .zoom-control { display: flex; align-items: center; gap: 10px; }
-        input[type=range] { cursor: pointer; }
+        .zoom-control { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
 
         /* Workspace */
         .workspace {
             display: flex;
             height: calc(100vh - var(--header-height) - var(--toolbar-height));
-            overflow: hidden;
+            overflow: hidden; /* Важно для дочерних скроллов */
         }
 
         /* Left Panel (Sources) */
         .sources-panel {
-            width: 420px;
-            background-color: #f8f9fa;
+            width: 450px;
+            background: #f8f9fa;
             border-right: 1px solid #ccc;
+            /* Исправление скролла: обычный блок с прокруткой */
+            overflow-y: auto; 
             padding: 15px;
             flex-shrink: 0;
-            overflow-y: auto; 
-            height: 100%;
+            height: 100%; 
             display: block;
         }
 
         .source-file {
             background: #fff;
-            border-radius: 6px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #ddd;
+            border-radius: 4px;
             overflow: hidden;
             margin-bottom: 15px;
         }
 
         .source-header {
-            padding: 10px 15px;
-            background: #fff;
-            border-bottom: 1px solid #eee;
+            padding: 10px;
+            background: #f1f1f1;
             cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            user-select: none;
-            position: sticky;
-            top: 0;
-            z-index: 10;
+            border-bottom: 1px solid #eee;
         }
-        .source-header:hover { background-color: #f1f1f1; }
-        
-        .source-title { font-weight: 600; font-size: 0.95rem; word-break: break-all; }
-        .toggle-icon { transition: transform 0.2s; font-size: 0.8rem; color: #777; }
-        .source-file.collapsed .toggle-icon { transform: rotate(-90deg); }
-        .source-file.collapsed .page-list { display: none; }
 
         .page-list {
-            padding: 10px;
+            padding: 15px;
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            background-color: #fafafa;
+            gap: 15px;
             justify-content: center;
+            background: #fff;
         }
+        
+        .source-file.collapsed .page-list { display: none; }
 
         /* Right Panel (Target) */
         .target-panel {
             flex: 1;
             padding: 20px;
-            background-color: #fff;
+            background: #fff;
             display: flex;
             flex-direction: column;
-            height: 100%;
             overflow: hidden;
+            height: 100%;
         }
 
-        .target-header { margin-bottom: 10px; color: #555; font-size: 1.1rem; flex-shrink: 0; }
+        .target-header { margin-bottom: 10px; font-weight: bold; color: #555; }
 
         #new-doc-area {
             flex: 1;
+            border: 2px dashed #ccc;
+            background: #fafafa;
+            border-radius: 6px;
+            padding: 20px;
+            overflow-y: auto;
             display: flex;
             flex-wrap: wrap;
-            gap: 15px;
-            padding: 20px;
-            border: 2px dashed #ccc;
-            border-radius: 8px;
             align-content: flex-start;
-            background-color: #fdfdfd;
-            overflow-y: auto;
+            gap: 15px;
         }
+        #new-doc-area.drag-over { background: #eef6ff; border-color: var(--primary-color); }
 
-        #new-doc-area.drag-over { background-color: #eef6ff; border-color: var(--primary-color); }
-
-        /* Page Card Styles */
+        /* CARD STYLES */
         .page-card {
-            background: #fff;
+            background: white;
             border: 1px solid #ddd;
-            border-radius: 4px;
-            cursor: grab;
-            position: relative;
-            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             display: flex;
             flex-direction: column;
             align-items: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            cursor: grab;
+            position: relative;
+            user-select: none;
+            transition: width 0.1s ease;
         }
 
+        /* Применение переменных ширины */
         .sources-panel .page-card { width: var(--source-card-width); }
         .target-panel .page-card { width: var(--target-card-width); }
-
-        .page-card:hover {
-            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
-            transform: translateY(-2px);
-            z-index: 5;
-        }
 
         .page-card canvas {
             width: 100%;
             height: auto;
-            display: block;
-            border-bottom: 1px solid #eee;
             pointer-events: none;
+            display: block;
         }
 
         .page-number {
-            font-size: 0.8rem;
-            padding: 5px;
-            color: #666;
-            text-align: center;
             width: 100%;
+            text-align: center;
+            font-size: 0.8rem;
+            padding: 4px;
             background: #fff;
+            color: #555;
+            border-top: 1px solid #eee;
         }
 
+        /* Кнопка удаления (только справа) */
         .remove-btn {
             position: absolute;
-            top: -8px;
-            right: -8px;
-            background: #dc3545;
-            color: white;
+            top: -8px; right: -8px;
+            width: 24px; height: 24px;
+            background: #dc3545; color: white;
             border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            text-align: center;
-            line-height: 22px;
-            font-size: 16px;
-            cursor: pointer;
-            display: none;
+            text-align: center; line-height: 22px;
+            cursor: pointer; font-weight: bold;
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
             z-index: 10;
-            font-weight: bold;
+            display: none; 
         }
-
         #new-doc-area .page-card .remove-btn { display: block; }
 
-        /* Loading Overlay */
+        /* Счетчик (только слева) */
+        .usage-counter {
+            position: absolute;
+            top: -8px; left: -8px;
+            width: 24px; height: 24px;
+            background: #28a745; color: white;
+            border-radius: 50%;
+            text-align: center; line-height: 24px;
+            font-size: 12px; font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 10;
+            display: none;
+        }
+        /* В правой панели счетчик не нужен */
+        #new-doc-area .page-card .usage-counter { display: none !important; }
+
+        /* Loader */
         .loading-overlay {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top:0; left:0; right:0; bottom:0;
             background: rgba(255,255,255,0.9);
-            display: flex;
+            z-index: 1000;
+            display: none;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 100;
-            display: none;
         }
         .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid var(--primary-color);
+            width: 40px; height: 40px;
+            border: 4px solid #f3f3f3; border-top: 4px solid #007bff;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
             animation: spin 1s linear infinite;
-            margin-bottom: 15px;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        .empty-msg { width: 100%; text-align: center; color: #999; margin-top: 40px; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
     </style>
 </head>
 <body>
 
 <div class="loading-overlay" id="loader">
     <div class="spinner"></div>
-    <div id="loader-text">Processing...</div>
+    <div style="margin-top:10px">Processing...</div>
 </div>
 
 <header>
-    <h1>PDF Builder</h1>
+    <h1>PDF Page Builder</h1>
     <div class="header-actions">
         <label class="btn btn-primary">
-            <span>+ Add PDF Files</span>
+            <span>+ Add PDF</span>
             <input type="file" id="file-input" multiple accept="application/pdf">
         </label>
-        <button class="btn btn-success" onclick="generatePDF()">Save New PDF</button>
+        <button class="btn btn-success" onclick="generatePDF()">Download PDF</button>
     </div>
 </header>
 
 <div class="toolbar">
     <div class="zoom-control">
         <label>Source Zoom:</label>
-        <input type="range" id="source-zoom" min="80" max="500" value="150">
+        <!-- Диапазон увеличен -->
+        <input type="range" id="source-zoom" min="80" max="400" value="130">
     </div>
     <div class="zoom-control">
         <label>Target Zoom:</label>
-        <input type="range" id="target-zoom" min="80" max="500" value="150">
+        <input type="range" id="target-zoom" min="100" max="500" value="200">
     </div>
 </div>
 
 <div class="workspace">
-    <!-- Left Panel: Sources -->
+    <!-- Исходные файлы -->
     <div class="sources-panel" id="sources-container">
-        <div class="empty-msg">Upload PDF files to see pages here.</div>
+        <div style="text-align:center; color:#999; margin-top:20px;">
+            Upload PDF files to start
+        </div>
     </div>
 
-    <!-- Right Panel: Target -->
+    <!-- Новый документ -->
     <div class="target-panel">
-        <div class="target-header">New Document (Drag pages here)</div>
-        <div id="new-doc-area">
-            <!-- Pages will be dropped here -->
-        </div>
+        <div class="target-header">New Document</div>
+        <div id="new-doc-area"></div>
     </div>
 </div>
 
 <script>
-    // Configure PDF.js worker
+    // Настройка PDF.js
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     const fileInput = document.getElementById('file-input');
     const sourcesContainer = document.getElementById('sources-container');
     const newDocArea = document.getElementById('new-doc-area');
     const loader = document.getElementById('loader');
-    const loaderText = document.getElementById('loader-text');
 
-    // Zoom Controls
+    const pdfDataStore = {}; 
+    let fileCounter = 0;
+
+    // --- Зум ---
     const sourceZoom = document.getElementById('source-zoom');
     const targetZoom = document.getElementById('target-zoom');
     const root = document.documentElement;
 
-    sourceZoom.addEventListener('input', (e) => {
-        root.style.setProperty('--source-card-width', `${e.target.value}px`);
-    });
+    sourceZoom.addEventListener('input', (e) => root.style.setProperty('--source-card-width', e.target.value + 'px'));
+    targetZoom.addEventListener('input', (e) => root.style.setProperty('--target-card-width', e.target.value + 'px'));
 
-    targetZoom.addEventListener('input', (e) => {
-        root.style.setProperty('--target-card-width', `${e.target.value}px`);
-    });
-
-    // Data Store
-    const pdfDataStore = {}; 
-    let fileCounter = 0;
-
-    // Initialize Sortable
+    // --- Настройка Sortable (Target) ---
     new Sortable(newDocArea, {
         group: 'shared',
         animation: 150,
-        ghostClass: 'sortable-ghost'
+        ghostClass: 'sortable-ghost',
+        
+        onAdd: function (evt) {
+            // Удаляем ID у копии, чтобы не мусорить DOM,
+            // хотя для логики счетчиков это теперь не критично.
+            evt.item.removeAttribute('id');
+            updatePageCounters();
+        },
+        onSort: function (evt) {
+            updatePageCounters();
+        }
     });
 
+    // Удаление страниц (делегирование)
+    newDocArea.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-btn')) {
+            e.target.closest('.page-card').remove();
+            updatePageCounters();
+        }
+    });
+
+    // --- Загрузка ---
     fileInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
-        if (files.length === 0) return;
+        if(!files.length) return;
 
-        if (sourcesContainer.querySelector('.empty-msg')) {
-            sourcesContainer.innerHTML = '';
-        }
-
+        if(sourcesContainer.innerText.includes('Upload PDF')) sourcesContainer.innerHTML = '';
         loader.style.display = 'flex';
-        loaderText.innerText = "Loading files...";
-
+        
         for (const file of files) {
             try {
-                await processUploadedFile(file);
+                await processFile(file);
             } catch (err) {
-                console.error("Error processing file:", err);
-                alert(`Failed to load ${file.name}`);
+                console.error(err);
+                alert("Error loading " + file.name);
             }
         }
-
+        
         loader.style.display = 'none';
-        fileInput.value = ''; 
+        fileInput.value = '';
     });
 
-    async function processUploadedFile(file) {
-        const fileId = `file_${fileCounter++}`;
-        
-        const originalBuffer = await file.arrayBuffer();
-        // Clone buffer for safe keeping
-        pdfDataStore[fileId] = originalBuffer.slice(0);
+    async function processFile(file) {
+        const fileId = `f${fileCounter++}`;
+        const buffer = await file.arrayBuffer();
+        pdfDataStore[fileId] = buffer.slice(0);
 
-        const pdfDoc = await pdfjsLib.getDocument(originalBuffer).promise;
+        const pdfDoc = await pdfjsLib.getDocument(buffer).promise;
 
         const fileDiv = document.createElement('div');
         fileDiv.className = 'source-file';
         
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'source-header';
-        headerDiv.innerHTML = `
-            <span class="source-title">${file.name} (${pdfDoc.numPages} pages)</span>
-            <span class="toggle-icon">▼</span>
-        `;
-        headerDiv.onclick = () => {
-            fileDiv.classList.toggle('collapsed');
-        };
+        const header = document.createElement('div');
+        header.className = 'source-header';
+        header.innerHTML = `<span>${file.name}</span><span>▼</span>`;
+        header.onclick = () => fileDiv.classList.toggle('collapsed');
 
-        const pageListDiv = document.createElement('div');
-        pageListDiv.className = 'page-list';
-        pageListDiv.id = `list-${fileId}`;
+        const pageList = document.createElement('div');
+        pageList.className = 'page-list';
+        pageList.id = `list-${fileId}`;
 
-        fileDiv.appendChild(headerDiv);
-        fileDiv.appendChild(pageListDiv);
-        sourcesContainer.appendChild(fileDiv);
+        fileDiv.append(header, pageList);
+        sourcesContainer.append(fileDiv);
 
-        // Render Pages (Scale 0.6 for better quality on zoom)
-        const renderScale = 0.6; 
+        // Рендерим с качеством 1.5. Это хороший баланс.
+        // В Source оно будет уменьшено CSS-ом, в Target увеличено.
+        // При сильном зуме качество сохранится.
+        const renderScale = 1.5; 
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
             const page = await pdfDoc.getPage(i);
@@ -402,83 +389,122 @@
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
-            canvas.height = viewport.height;
             canvas.width = viewport.width;
+            canvas.height = viewport.height;
 
             await page.render({ canvasContext: context, viewport: viewport }).promise;
 
             const card = document.createElement('div');
             card.className = 'page-card';
-            card.dataset.fileId = fileId;
-            card.dataset.pageIndex = i - 1; 
+            
+            // Записываем данные для идентификации
+            card.dataset.fid = fileId;
+            card.dataset.pid = i;
 
-            const removeBtn = document.createElement('div');
-            removeBtn.className = 'remove-btn';
-            removeBtn.innerHTML = '&times;';
-            removeBtn.onclick = function() { card.remove(); };
-
-            const pageNum = document.createElement('div');
-            pageNum.className = 'page-number';
-            pageNum.innerText = `Page ${i}`;
-
-            card.appendChild(removeBtn);
-            card.appendChild(canvas);
-            card.appendChild(pageNum);
-            pageListDiv.appendChild(card);
+            card.innerHTML = `
+                <div class="remove-btn">×</div>
+                <div class="usage-counter">0</div>
+                <div class="page-number">Page ${i}</div>
+            `;
+            // Вставляем канвас
+            card.insertBefore(canvas, card.querySelector('.page-number'));
+            pageList.appendChild(card);
         }
 
-        new Sortable(pageListDiv, {
+        // --- Sortable для исходников ---
+        new Sortable(pageList, {
             group: {
                 name: 'shared',
-                pull: 'clone', 
-                put: false 
+                pull: 'clone',
+                put: false
             },
             sort: false,
-            animation: 150
+            animation: 150,
+            
+            // КОПИРОВАНИЕ CANVAS
+            onClone: function(evt) {
+                const origCanvas = evt.item.querySelector('canvas');
+                const cloneCanvas = evt.clone.querySelector('canvas');
+                if (origCanvas && cloneCanvas) {
+                    cloneCanvas.width = origCanvas.width;
+                    cloneCanvas.height = origCanvas.height;
+                    cloneCanvas.getContext('2d').drawImage(origCanvas, 0, 0);
+                }
+            }
         });
     }
 
+    // --- Обновление счетчиков (Надежный метод) ---
+    function updatePageCounters() {
+        // 1. Собираем статистику из правой панели
+        const targetCards = newDocArea.querySelectorAll('.page-card');
+        const counts = {}; // "fileId-pageId" -> количество
+
+        targetCards.forEach(card => {
+            const key = `${card.dataset.fid}-${card.dataset.pid}`;
+            counts[key] = (counts[key] || 0) + 1;
+        });
+
+        // 2. Проходим по всем карточкам в левой панели и обновляем их
+        // Использование querySelectorAll внутри .sources-panel гарантирует, 
+        // что мы находим визуально отображаемые элементы (клоны или оригиналы)
+        const sourceCards = document.querySelectorAll('.sources-panel .page-card');
+        
+        sourceCards.forEach(card => {
+            const key = `${card.dataset.fid}-${card.dataset.pid}`;
+            const count = counts[key] || 0;
+            
+            const badge = card.querySelector('.usage-counter');
+            if (badge) {
+                badge.innerText = count;
+                badge.style.display = count > 0 ? 'block' : 'none';
+            }
+            
+            // Опционально: подсветка самой карточки
+            if (count > 0) {
+                card.style.borderColor = '#28a745';
+            } else {
+                card.style.borderColor = '#ddd';
+            }
+        });
+    }
+
+    // --- Генерация PDF ---
     async function generatePDF() {
         const cards = newDocArea.querySelectorAll('.page-card');
-        if (cards.length === 0) {
-            alert("Please drag some pages into the New Document area first.");
+        if (!cards.length) {
+            alert("New document is empty!");
             return;
         }
 
         loader.style.display = 'flex';
-        loaderText.innerText = "Generating PDF...";
-
         try {
             const { PDFDocument } = PDFLib;
             const newPdf = await PDFDocument.create();
-            const loadedPdfDocs = {};
+            const loadedDocs = {};
 
             for (const card of cards) {
-                const fileId = card.dataset.fileId;
-                const pageIndex = parseInt(card.dataset.pageIndex);
+                const fid = card.dataset.fid;
+                const pid = parseInt(card.dataset.pid);
 
-                if (!loadedPdfDocs[fileId]) {
-                    // Pass a COPY (slice) of the buffer to load()
-                    const bufferCopy = pdfDataStore[fileId].slice(0);
-                    loadedPdfDocs[fileId] = await PDFDocument.load(bufferCopy);
+                if (!loadedDocs[fid]) {
+                    loadedDocs[fid] = await PDFDocument.load(pdfDataStore[fid]);
                 }
-
-                const sourcePdf = loadedPdfDocs[fileId];
-                const [copiedPage] = await newPdf.copyPages(sourcePdf, [pageIndex]);
+                
+                // copyPages использует индекс 0-based, а у нас pid 1-based
+                const [copiedPage] = await newPdf.copyPages(loadedDocs[fid], [pid - 1]);
                 newPdf.addPage(copiedPage);
             }
 
             const pdfBytes = await newPdf.save();
-            
             const blob = new Blob([pdfBytes], { type: 'application/pdf' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = 'merged_document.pdf';
+            link.download = 'merged.pdf';
             link.click();
-
-        } catch (err) {
-            console.error(err);
-            alert("Error generating PDF. Check console for details.");
+        } catch (e) {
+            console.error(e);
+            alert("Error creating PDF");
         } finally {
             loader.style.display = 'none';
         }
