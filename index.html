@@ -3,15 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Page Builder</title>
     
+    <!-- SEO Meta Tags -->
+    <title>Free PDF Page Builder - Secure, Client-Side, Offline Tool</title>
+    <meta name="description" content="Free and secure online PDF Merger and Page Builder. Combine PDF files, reorder pages, and convert images to PDF entirely in your browser. No file uploads - 100% private and offline capable.">
+    <meta name="keywords" content="merge pdf, pdf builder, client-side pdf, offline pdf tool, combine pdf pages, free pdf merger, privacy focused pdf, jpg to pdf, secure pdf tool">
+    <meta name="author" content="klevap">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Free PDF Page Builder - Secure & Offline">
+    <meta property="og:description" content="Merge and organize PDF pages entirely in your browser. No server uploads. 100% Private.">
+
     <!-- Libraries -->
-    <!-- Важно: ID нужны для скрипта экспорта, чтобы найти и заменить их -->
     <script id="lib-pdflib" src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <script id="lib-pdfjs" src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script id="lib-sortable" src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     
-    <!-- Подключаем наш скрипт-экспортер -->
+    <!-- Подключаем скрипт-экспортер (если есть) -->
     <script src="bundler.js"></script>
 
     <style>
@@ -20,19 +29,22 @@
             --target-card-width: 200px; 
             --header-height: 60px;
             --toolbar-height: 50px;
+            --footer-height: 40px;
             --primary-color: #007bff;
+            --text-color: #333;
         }
 
         * { box-sizing: border-box; }
 
         body {
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
             display: flex;
             flex-direction: column;
             height: 100vh;
             background-color: #f4f7f6;
+            color: var(--text-color);
             overflow: hidden;
         }
 
@@ -47,6 +59,13 @@
             align-items: center;
             z-index: 20;
             flex-shrink: 0;
+        }
+        
+        h1 { font-size: 1.2rem; margin: 0; display: flex; align-items: center; gap: 10px; }
+        .badge-secure {
+            background: #e8f5e9; color: #2e7d32;
+            font-size: 0.7rem; padding: 2px 8px; border-radius: 12px;
+            border: 1px solid #c8e6c9; font-weight: normal;
         }
         
         .header-actions { display: flex; gap: 10px; align-items: center; }
@@ -64,10 +83,12 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            transition: opacity 0.2s;
         }
         .btn-primary { background: var(--primary-color); }
         .btn-success { background: #28a745; }
         .btn-dark { background: #343a40; }
+        .btn-info { background: #17a2b8; }
         .btn:hover { opacity: 0.9; }
         input[type="file"] { display: none; }
 
@@ -103,8 +124,9 @@
         /* Workspace */
         .workspace {
             display: flex;
-            height: calc(100vh - var(--header-height) - var(--toolbar-height));
+            flex: 1; /* Занимает все доступное место */
             overflow: hidden;
+            position: relative;
         }
 
         /* Left Panel */
@@ -136,12 +158,7 @@
             justify-content: space-between;
             border-bottom: 1px solid #eee;
         }
-        
-        /* Специальный стиль для заголовка картинок */
-        .source-header.images-header {
-            background: #e3f2fd;
-            color: #0d47a1;
-        }
+        .source-header.images-header { background: #e3f2fd; color: #0d47a1; }
 
         .page-list {
             padding: 15px;
@@ -151,7 +168,6 @@
             justify-content: center;
             background: #fff;
         }
-        
         .source-file.collapsed .page-list { display: none; }
 
         /* Right Panel */
@@ -204,7 +220,7 @@
             pointer-events: none;
             display: block;
             object-fit: contain;
-            background: #eee; /* фон для прозрачных png */
+            background: #eee;
         }
 
         .page-number {
@@ -248,6 +264,19 @@
         }
         #new-doc-area .page-card .usage-counter { display: none !important; }
 
+        /* Footer for SEO */
+        footer {
+            background: #343a40;
+            color: #adb5bd;
+            font-size: 0.8rem;
+            text-align: center;
+            padding: 10px;
+            flex-shrink: 0;
+            z-index: 30;
+        }
+        footer a { color: #fff; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
         /* Loader */
         .loading-overlay {
             position: fixed;
@@ -266,21 +295,97 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            position: relative;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px; right: 15px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+            line-height: 1;
+        }
+        .modal-content h2 { margin-top: 0; color: var(--primary-color); }
+        .modal-content h3 { margin-bottom: 10px; color: #333; }
+        .modal-content ul { line-height: 1.6; }
+        .security-highlight {
+            background: #e8f5e9;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+            color: #1b5e20;
+        }
     </style>
 </head>
 <body>
 
+<!-- Loader -->
 <div class="loading-overlay" id="loader">
     <div class="spinner"></div>
     <div style="margin-top:10px" id="loader-text">Processing...</div>
 </div>
 
+<!-- About Modal -->
+<div class="modal-overlay" id="about-modal" onclick="closeAbout(event)">
+    <div class="modal-content">
+        <span class="modal-close" onclick="toggleAbout()">×</span>
+        <h2>About PDF Page Builder</h2>
+        
+        <div class="security-highlight">
+            <h3>🔒 100% Secure & Private</h3>
+            <p>This tool works entirely in your browser (Client-Side). <strong>Your files are NEVER uploaded to any server.</strong> They stay on your device at all times.</p>
+        </div>
+
+        <h3>Why use this tool?</h3>
+        <ul>
+            <li><strong>Merge PDFs:</strong> Combine multiple documents into one.</li>
+            <li><strong>Images to PDF:</strong> Convert JPG and PNG images to PDF pages.</li>
+            <li><strong>Organize:</strong> Drag and drop pages to reorder them.</li>
+            <li><strong>Offline Capable:</strong> Save this app as an HTML file and use it without internet.</li>
+            <li><strong>Free & Open Source:</strong> No hidden costs, no watermarks.</li>
+        </ul>
+
+        <p style="font-size: 0.9rem; color: #666; margin-top: 20px;">
+            Built with <a href="https://github.com/Hopding/pdf-lib" target="_blank">pdf-lib</a> and <a href="https://mozilla.github.io/pdf.js/" target="_blank">pdf.js</a>.
+            <br>
+            Source code available on <a href="https://github.com/klevap/pdf_merge" target="_blank">GitHub</a>.
+        </p>
+        <div style="text-align: right; margin-top: 20px;">
+            <button class="btn btn-primary" onclick="toggleAbout()">Got it!</button>
+        </div>
+    </div>
+</div>
+
 <header>
-    <h1>PDF Page Builder</h1>
+    <h1>
+        PDF Page Builder 
+        <span class="badge-secure">🔒 Secure & Client-Side</span>
+    </h1>
     <div class="header-actions">
+        <button class="btn btn-info" onclick="toggleAbout()">ℹ️ About & Security</button>
+        
         <label class="btn btn-primary">
             <span>+ Add PDF / Images</span>
-            <!-- Добавлена поддержка изображений -->
             <input type="file" id="file-input" multiple accept="application/pdf, image/jpeg, image/png">
         </label>
         
@@ -296,7 +401,6 @@
         
         <button class="btn btn-success" onclick="generatePDF()">Download PDF</button>
         
-        <!-- Кнопка для сохранения программы -->
         <button class="btn btn-dark" onclick="saveOfflineVersion()" title="Save this tool as a single HTML file">
             Save App Offline
         </button>
@@ -317,7 +421,9 @@
 <div class="workspace">
     <div class="sources-panel" id="sources-container">
         <div style="text-align:center; color:#999; margin-top:20px;" id="empty-msg">
-            Upload PDF files or Images to start
+            <p style="font-size: 1.2rem; margin-bottom: 10px;">👋 Welcome!</p>
+            Upload PDF files or Images to start.<br>
+            <small>Your files will not be uploaded to any server.</small>
         </div>
     </div>
 
@@ -327,9 +433,25 @@
     </div>
 </div>
 
+<!-- Footer for SEO -->
+<footer>
+    Free PDF Page Builder | 100% Client-Side & Secure | Works Offline | <a href="https://github.com/klevap/pdf_merge" target="_blank">Open Source on GitHub</a>
+</footer>
+
 <script>
+    // --- Modal Logic ---
+    function toggleAbout() {
+        const modal = document.getElementById('about-modal');
+        modal.style.display = (modal.style.display === 'flex') ? 'none' : 'flex';
+    }
+
+    function closeAbout(e) {
+        if (e.target.id === 'about-modal') {
+            toggleAbout();
+        }
+    }
+
     // Настройка PDF.js
-    // Если мы в оффлайн режиме (код инжектирован), workerSrc может быть уже установлен
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
@@ -340,7 +462,6 @@
     const loader = document.getElementById('loader');
     const loaderText = document.getElementById('loader-text');
 
-    // Хранилище данных: { 'f1': ArrayBuffer, 'img_123': { buffer: ArrayBuffer, type: 'jpg/png' } }
     const dataStore = {}; 
     let fileCounter = 0;
     let imageCounter = 0;
@@ -425,7 +546,7 @@
 
         for (let i = 1; i <= pdfDoc.numPages; i++) {
             const page = await pdfDoc.getPage(i);
-            const viewport = page.getViewport({ scale: 1.0 }); // Thumbnail scale
+            const viewport = page.getViewport({ scale: 1.0 });
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
@@ -442,7 +563,6 @@
     }
 
     async function processImage(file) {
-        // Проверяем, есть ли уже контейнер для картинок
         let imgContainer = document.getElementById('images-container');
         let pageList;
 
@@ -460,7 +580,6 @@
             pageList.className = 'page-list';
             
             imgContainer.append(header, pageList);
-            // Вставляем в начало списка
             sourcesContainer.insertBefore(imgContainer, sourcesContainer.firstChild);
             
             initSortable(pageList);
@@ -470,7 +589,6 @@
 
         const imgId = `img_${imageCounter++}`;
         const buffer = await file.arrayBuffer();
-        // Определяем тип для pdf-lib
         const isPng = file.type === 'image/png';
         dataStore[imgId] = { 
             type: isPng ? 'png' : 'jpg', 
@@ -478,15 +596,13 @@
             name: file.name
         };
 
-        // Создаем превью
         const img = new Image();
         const blob = new Blob([buffer], { type: file.type });
         const url = URL.createObjectURL(blob);
         
         img.onload = () => {
-            const card = createCard(img, file.name, imgId, 0); // pid 0 для картинок
+            const card = createCard(img, file.name, imgId, 0);
             pageList.appendChild(card);
-            // URL.revokeObjectURL(url); // Не удаляем сразу, чтобы картинка осталась в DOM
         };
         img.src = url;
     }
@@ -512,7 +628,6 @@
             sort: false,
             animation: 150,
             onClone: function(evt) {
-                // Клонируем Canvas или Image корректно
                 const origVisual = evt.item.querySelector('canvas, img');
                 const cloneVisual = evt.clone.querySelector('canvas, img');
                 
@@ -521,7 +636,6 @@
                     cloneVisual.height = origVisual.height;
                     cloneVisual.getContext('2d').drawImage(origVisual, 0, 0);
                 }
-                // Для IMG src копируется автоматически
             }
         });
     }
@@ -547,7 +661,6 @@
         });
     }
 
-    // --- Генерация PDF ---
     async function generatePDF() {
         const cards = newDocArea.querySelectorAll('.page-card');
         if (!cards.length) {
@@ -565,14 +678,13 @@
         try {
             const { PDFDocument } = PDFLib;
             const newPdf = await PDFDocument.create();
-            const loadedPdfDocs = {}; // Кэш загруженных PDF документов
+            const loadedPdfDocs = {};
 
             for (const card of cards) {
                 const fid = card.dataset.fid;
                 const dataItem = dataStore[fid];
 
                 if (dataItem.type === 'pdf') {
-                    // Обработка PDF страницы
                     const pid = parseInt(card.dataset.pid);
                     
                     if (!loadedPdfDocs[fid]) {
@@ -590,7 +702,6 @@
                     newPdf.addPage(copiedPage);
 
                 } else {
-                    // Обработка Изображения
                     let image;
                     if (dataItem.type === 'jpg') {
                         image = await newPdf.embedJpg(dataItem.buffer);
@@ -600,7 +711,6 @@
 
                     let dims = image.scale(1);
                     
-                    // Логика масштабирования картинки
                     if (shouldScale) {
                         const scaleFactor = targetWidthVal / dims.width;
                         dims = {
