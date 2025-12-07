@@ -6,21 +6,43 @@
     
     <!-- SEO Meta Tags -->
     <title>Free PDF Page Builder - Secure, Client-Side, Offline Tool</title>
-    <meta name="description" content="Free and secure online PDF Merger and Page Builder. Combine PDF files, reorder pages, and convert images to PDF entirely in your browser. No file uploads - 100% private and offline capable.">
-    <meta name="keywords" content="merge pdf, pdf builder, client-side pdf, offline pdf tool, combine pdf pages, free pdf merger, privacy focused pdf, jpg to pdf, secure pdf tool">
+    <meta name="description" content="Free and secure online PDF Merger and Page Builder. Combine PDF files, reorder pages, rotate pages and convert images to PDF entirely in your browser. No file uploads - 100% private and offline capable.">
+    <meta name="keywords" content="merge pdf, pdf builder, client-side pdf, offline pdf tool, combine pdf pages, rotate pdf, free pdf merger, privacy focused pdf, jpg to pdf, secure pdf tool">
     <meta name="author" content="klevap">
     
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="Free PDF Page Builder - Secure & Offline">
-    <meta property="og:description" content="Merge and organize PDF pages entirely in your browser. No server uploads. 100% Private.">
+    <meta property="og:description" content="Merge, rotate and organize PDF pages entirely in your browser. No server uploads. 100% Private.">
+
+    <!-- Schema.org Markup -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Free PDF Page Builder",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": "Merge PDF, Rotate PDF Pages, Image to PDF, Offline Capable, Client-Side Secure, Drag and Drop Reordering",
+      "softwareRequirements": "Modern Web Browser (Chrome, Firefox, Edge, Safari)",
+      "author": {
+          "@type": "Person",
+          "name": "klevap"
+      }
+    }
+    </script>
 
     <!-- Libraries -->
     <script id="lib-pdflib" src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <script id="lib-pdfjs" src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script id="lib-sortable" src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     
-    <!-- Подключаем скрипт-экспортер (если есть) -->
+    <!-- Подключаем скрипт-экспортер -->
     <script src="bundler.js"></script>
 
     <style>
@@ -124,7 +146,7 @@
         /* Workspace */
         .workspace {
             display: flex;
-            flex: 1; /* Занимает все доступное место */
+            flex: 1;
             overflow: hidden;
             position: relative;
         }
@@ -214,7 +236,7 @@
         .sources-panel .page-card { width: var(--source-card-width); }
         .target-panel .page-card { width: var(--target-card-width); }
 
-        .page-card canvas, .page-card img {
+        .page-card canvas {
             width: 100%;
             height: auto;
             pointer-events: none;
@@ -234,8 +256,11 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            z-index: 5;
+            position: relative;
         }
 
+        /* Кнопка удаления */
         .remove-btn {
             position: absolute;
             top: -8px; right: -8px;
@@ -249,6 +274,24 @@
             display: none; 
         }
         #new-doc-area .page-card .remove-btn { display: block; }
+
+        /* Кнопка поворота */
+        .rotate-btn {
+            position: absolute;
+            bottom: 28px;
+            right: 5px;
+            width: 26px; height: 26px;
+            background: #007bff; color: white;
+            border-radius: 50%;
+            text-align: center; line-height: 26px;
+            cursor: pointer; font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 10;
+            font-size: 16px;
+            display: none;
+        }
+        .rotate-btn:hover { background: #0056b3; }
+        #new-doc-area .page-card .rotate-btn { display: block; }
 
         .usage-counter {
             position: absolute;
@@ -360,6 +403,7 @@
         <ul>
             <li><strong>Merge PDFs:</strong> Combine multiple documents into one.</li>
             <li><strong>Images to PDF:</strong> Convert JPG and PNG images to PDF pages.</li>
+            <li><strong>Rotate Pages:</strong> Easily rotate pages 90, 180, or 270 degrees.</li>
             <li><strong>Organize:</strong> Drag and drop pages to reorder them.</li>
             <li><strong>Offline Capable:</strong> Save this app as an HTML file and use it without internet.</li>
             <li><strong>Free & Open Source:</strong> No hidden costs, no watermarks.</li>
@@ -463,6 +507,10 @@
     const loaderText = document.getElementById('loader-text');
 
     const dataStore = {}; 
+    // Кэши для быстрого рендеринга при повороте
+    const pdfDocCache = {}; 
+    const imageCache = {}; 
+
     let fileCounter = 0;
     let imageCounter = 0;
 
@@ -481,6 +529,9 @@
         ghostClass: 'sortable-ghost',
         onAdd: function (evt) {
             evt.item.removeAttribute('id');
+            if (!evt.item.dataset.rotation) {
+                evt.item.dataset.rotation = "0";
+            }
             updatePageCounters();
         },
         onSort: function (evt) {
@@ -488,12 +539,73 @@
         }
     });
 
+    // --- Обработчик кликов в рабочей области (Удаление и Поворот) ---
     newDocArea.addEventListener('click', function(e) {
+        const card = e.target.closest('.page-card');
+        if (!card) return;
+
+        // Удаление
         if (e.target.classList.contains('remove-btn')) {
-            e.target.closest('.page-card').remove();
+            card.remove();
             updatePageCounters();
         }
+
+        // Поворот
+        if (e.target.classList.contains('rotate-btn')) {
+            let currentRotation = parseInt(card.dataset.rotation || 0);
+            currentRotation = (currentRotation + 90) % 360; 
+            card.dataset.rotation = currentRotation;
+            
+            // Перерисовываем карточку с учетом нового поворота
+            updateCardVisual(card);
+        }
     });
+
+    // --- Функция перерисовки карточки (для превью) ---
+    async function updateCardVisual(card) {
+        const fid = card.dataset.fid;
+        const pid = parseInt(card.dataset.pid);
+        const rotation = parseInt(card.dataset.rotation || 0);
+        const dataItem = dataStore[fid];
+        const canvas = card.querySelector('canvas');
+        const context = canvas.getContext('2d');
+
+        if (dataItem.type === 'pdf') {
+            const pdfDoc = pdfDocCache[fid];
+            if (pdfDoc) {
+                const page = await pdfDoc.getPage(pid);
+                // Запрашиваем viewport с учетом поворота
+                const viewport = page.getViewport({ scale: 1.0, rotation: rotation });
+                
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                
+                // Рендерим заново
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+            }
+        } else {
+            // Для изображений
+            const img = imageCache[fid];
+            if (img) {
+                const isRotated = rotation === 90 || rotation === 270;
+                // Если 90/270, меняем местами ширину и высоту canvas
+                canvas.width = isRotated ? img.height : img.width;
+                canvas.height = isRotated ? img.width : img.height;
+
+                // Очищаем и сохраняем контекст
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                context.save();
+
+                // Смещаем центр и вращаем
+                context.translate(canvas.width / 2, canvas.height / 2);
+                context.rotate(rotation * Math.PI / 180);
+                
+                // Рисуем картинку (центрированно)
+                context.drawImage(img, -img.width / 2, -img.height / 2);
+                context.restore();
+            }
+        }
+    }
 
     // --- Загрузка файлов ---
     fileInput.addEventListener('change', async (e) => {
@@ -528,7 +640,9 @@
         const buffer = await file.arrayBuffer();
         dataStore[fileId] = { type: 'pdf', buffer: buffer.slice(0) };
 
+        // Сохраняем документ в кэш для быстрого доступа при повороте
         const pdfDoc = await pdfjsLib.getDocument(buffer).promise;
+        pdfDocCache[fileId] = pdfDoc;
 
         const fileDiv = document.createElement('div');
         fileDiv.className = 'source-file';
@@ -601,7 +715,17 @@
         const url = URL.createObjectURL(blob);
         
         img.onload = () => {
-            const card = createCard(img, file.name, imgId, 0);
+            // Кэшируем объект Image для перерисовки
+            imageCache[imgId] = img;
+
+            // Создаем canvas вместо img тега, чтобы унифицировать логику поворота
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            const card = createCard(canvas, file.name, imgId, 0);
             pageList.appendChild(card);
         };
         img.src = url;
@@ -612,13 +736,15 @@
         card.className = 'page-card';
         card.dataset.fid = fid;
         card.dataset.pid = pid;
+        card.dataset.rotation = "0"; 
 
         card.innerHTML = `
-            <div class="remove-btn">×</div>
+            <div class="remove-btn" title="Remove">×</div>
+            <div class="rotate-btn" title="Rotate 90°">↻</div>
             <div class="usage-counter">0</div>
             <div class="page-number">${labelText}</div>
         `;
-        card.insertBefore(visualElement, card.querySelector('.page-number'));
+        card.insertBefore(visualElement, card.querySelector('.remove-btn'));
         return card;
     }
 
@@ -628,14 +754,17 @@
             sort: false,
             animation: 150,
             onClone: function(evt) {
-                const origVisual = evt.item.querySelector('canvas, img');
-                const cloneVisual = evt.clone.querySelector('canvas, img');
+                const origCanvas = evt.item.querySelector('canvas');
+                const cloneCanvas = evt.clone.querySelector('canvas');
                 
-                if (origVisual.tagName === 'CANVAS') {
-                    cloneVisual.width = origVisual.width;
-                    cloneVisual.height = origVisual.height;
-                    cloneVisual.getContext('2d').drawImage(origVisual, 0, 0);
+                // При клонировании canvas нужно вручную скопировать содержимое
+                if (origCanvas && cloneCanvas) {
+                    cloneCanvas.width = origCanvas.width;
+                    cloneCanvas.height = origCanvas.height;
+                    cloneCanvas.getContext('2d').drawImage(origCanvas, 0, 0);
                 }
+                // Сбрасываем поворот у клона в источнике (визуально)
+                evt.clone.dataset.rotation = "0";
             }
         });
     }
@@ -676,13 +805,14 @@
         loaderText.innerText = 'Generating PDF...';
 
         try {
-            const { PDFDocument } = PDFLib;
+            const { PDFDocument, degrees } = PDFLib;
             const newPdf = await PDFDocument.create();
             const loadedPdfDocs = {};
 
             for (const card of cards) {
                 const fid = card.dataset.fid;
                 const dataItem = dataStore[fid];
+                const userRotation = parseInt(card.dataset.rotation || 0);
 
                 if (dataItem.type === 'pdf') {
                     const pid = parseInt(card.dataset.pid);
@@ -693,15 +823,26 @@
                     const srcDoc = loadedPdfDocs[fid];
                     const [copiedPage] = await newPdf.copyPages(srcDoc, [pid - 1]);
 
+                    // 1. Сначала применяем поворот
+                    copiedPage.setRotation(degrees(userRotation));
+
                     if (shouldScale) {
+                        // 2. Получаем размеры УЖЕ с учетом поворота
                         const { width, height } = copiedPage.getSize();
+                        
+                        // 3. Считаем масштаб относительно текущей (повернутой) ширины
                         const scaleFactor = targetWidthVal / width;
+                        
+                        // 4. Масштабируем контент
                         copiedPage.scaleContent(scaleFactor, scaleFactor);
+                        
+                        // 5. Устанавливаем новый размер страницы
                         copiedPage.setSize(targetWidthVal, height * scaleFactor);
                     }
                     newPdf.addPage(copiedPage);
 
                 } else {
+                    // Обработка изображений
                     let image;
                     if (dataItem.type === 'jpg') {
                         image = await newPdf.embedJpg(dataItem.buffer);
@@ -709,22 +850,43 @@
                         image = await newPdf.embedPng(dataItem.buffer);
                     }
 
-                    let dims = image.scale(1);
+                    const { width: imgW, height: imgH } = image;
                     
+                    // Определяем визуальные размеры после поворота
+                    // Если 90/270, то визуальная ширина = высоте картинки
+                    const isRotated = userRotation === 90 || userRotation === 270;
+                    const visualWidth = isRotated ? imgH : imgW;
+                    const visualHeight = isRotated ? imgW : imgH;
+
+                    let scale = 1;
                     if (shouldScale) {
-                        const scaleFactor = targetWidthVal / dims.width;
-                        dims = {
-                            width: targetWidthVal,
-                            height: dims.height * scaleFactor
-                        };
+                        scale = targetWidthVal / visualWidth;
                     }
 
-                    const page = newPdf.addPage([dims.width, dims.height]);
+                    // Размеры для отрисовки (scaled)
+                    const drawW = imgW * scale;
+                    const drawH = imgH * scale;
+                    
+                    // Размеры страницы (должны соответствовать визуальным размерам)
+                    const pageW = visualWidth * scale;
+                    const pageH = visualHeight * scale;
+
+                    const page = newPdf.addPage([pageW, pageH]);
+
+                    // Вычисляем координаты для отрисовки с учетом поворота
+                    // pdf-lib вращает вокруг точки привязки (x,y), поэтому нужно смещать начало координат
+                    let x = 0, y = 0;
+                    if (userRotation === 0) { x = 0; y = 0; }
+                    else if (userRotation === 90) { x = pageW; y = 0; }
+                    else if (userRotation === 180) { x = pageW; y = pageH; }
+                    else if (userRotation === 270) { x = 0; y = pageH; }
+
                     page.drawImage(image, {
-                        x: 0,
-                        y: 0,
-                        width: dims.width,
-                        height: dims.height,
+                        x: x,
+                        y: y,
+                        width: drawW,
+                        height: drawH,
+                        rotate: degrees(userRotation)
                     });
                 }
             }
