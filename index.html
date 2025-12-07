@@ -823,26 +823,42 @@
                     const srcDoc = loadedPdfDocs[fid];
                     const [copiedPage] = await newPdf.copyPages(srcDoc, [pid - 1]);
 
-                    // 1. Сначала применяем поворот
-                    copiedPage.setRotation(degrees(userRotation));
+                    // --- ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ PDF ---
+                    
+                    // 1. Получаем СУЩЕСТВУЮЩИЙ поворот страницы
+                    const existingRotation = copiedPage.getRotation().angle;
+                    
+                    // 2. Вычисляем СУММАРНЫЙ поворот
+                    const totalRotation = (existingRotation + userRotation) % 360;
+                    
+                    // 3. Применяем суммарный поворот
+                    copiedPage.setRotation(degrees(totalRotation));
+                    
+                    // 4. Получаем ФИЗИЧЕСКИЕ размеры (они не зависят от rotation)
+                    const { width: physicalW, height: physicalH } = copiedPage.getSize();
+                    
+                    // 5. Определяем, меняются ли местами ширина/высота визуально
+                    const isSwapped = (totalRotation === 90 || totalRotation === 270);
+                    
+                    // 6. Вычисляем ВИЗУАЛЬНЫЕ размеры
+                    const visualW = isSwapped ? physicalH : physicalW;
+                    // const visualH = isSwapped ? physicalW : physicalH; // не используется, но для понимания
 
                     if (shouldScale) {
-                        // 2. Получаем размеры УЖЕ с учетом поворота
-                        const { width, height } = copiedPage.getSize();
+                        // 7. Масштаб рассчитываем относительно ВИЗУАЛЬНОЙ ширины
+                        const scaleFactor = targetWidthVal / visualW;
                         
-                        // 3. Считаем масштаб относительно текущей (повернутой) ширины
-                        const scaleFactor = targetWidthVal / width;
-                        
-                        // 4. Масштабируем контент
+                        // 8. Масштабируем контент
                         copiedPage.scaleContent(scaleFactor, scaleFactor);
                         
-                        // 5. Устанавливаем новый размер страницы
-                        copiedPage.setSize(targetWidthVal, height * scaleFactor);
+                        // 9. Устанавливаем новые ФИЗИЧЕСКИЕ размеры (оба измерения масштабируются одинаково)
+                        copiedPage.setSize(physicalW * scaleFactor, physicalH * scaleFactor);
                     }
+                    
                     newPdf.addPage(copiedPage);
 
                 } else {
-                    // Обработка изображений
+                    // --- ЛОГИКА ДЛЯ ИЗОБРАЖЕНИЙ ---
                     let image;
                     if (dataItem.type === 'jpg') {
                         image = await newPdf.embedJpg(dataItem.buffer);
@@ -853,13 +869,13 @@
                     const { width: imgW, height: imgH } = image;
                     
                     // Определяем визуальные размеры после поворота
-                    // Если 90/270, то визуальная ширина = высоте картинки
                     const isRotated = userRotation === 90 || userRotation === 270;
                     const visualWidth = isRotated ? imgH : imgW;
                     const visualHeight = isRotated ? imgW : imgH;
 
                     let scale = 1;
                     if (shouldScale) {
+                        // Масштабируем относительно визуальной ширины
                         scale = targetWidthVal / visualWidth;
                     }
 
@@ -874,7 +890,6 @@
                     const page = newPdf.addPage([pageW, pageH]);
 
                     // Вычисляем координаты для отрисовки с учетом поворота
-                    // pdf-lib вращает вокруг точки привязки (x,y), поэтому нужно смещать начало координат
                     let x = 0, y = 0;
                     if (userRotation === 0) { x = 0; y = 0; }
                     else if (userRotation === 90) { x = pageW; y = 0; }
