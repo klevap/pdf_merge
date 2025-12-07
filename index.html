@@ -28,7 +28,7 @@
         "price": "0",
         "priceCurrency": "USD"
       },
-      "featureList": "Merge PDF, Rotate PDF Pages, Image to PDF, Offline Capable, Client-Side Secure, Drag and Drop Reordering",
+      "featureList": "Merge PDF, Rotate PDF Pages, Image to PDF, Offline Capable, Client-Side Secure, Drag and Drop Reordering, Multi-select pages",
       "softwareRequirements": "Modern Web Browser (Chrome, Firefox, Edge, Safari)",
       "author": {
           "@type": "Person",
@@ -54,6 +54,8 @@
             --footer-height: 40px;
             --primary-color: #007bff;
             --text-color: #333;
+            --selected-color: #e8f0fe;
+            --selected-border: #007bff;
         }
 
         * { box-sizing: border-box; }
@@ -178,9 +180,36 @@
             font-size: 0.9rem;
             display: flex;
             justify-content: space-between;
+            align-items: center;
             border-bottom: 1px solid #eee;
+            user-select: none;
         }
         .source-header.images-header { background: #e3f2fd; color: #0d47a1; }
+        
+        .source-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            overflow: hidden;
+        }
+        .source-title span:first-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .select-all-btn {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-right: 10px;
+            color: #555;
+        }
+        .select-all-btn:hover { background: #eee; color: #000; }
 
         .page-list {
             padding: 15px;
@@ -230,7 +259,20 @@
             cursor: grab;
             position: relative;
             user-select: none;
-            transition: width 0.1s ease;
+            transition: width 0.1s ease, border-color 0.1s, transform 0.1s;
+        }
+
+        /* Selected State */
+        .page-card.selected {
+            border: 2px solid var(--selected-border) !important; /* Important to override JS inline styles */
+            background-color: var(--selected-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+        }
+        .page-card.selected .page-number {
+            background-color: var(--selected-color);
+            color: var(--primary-color);
+            font-weight: bold;
         }
 
         .sources-panel .page-card { width: var(--source-card-width); }
@@ -402,11 +444,10 @@
         <h3>Why use this tool?</h3>
         <ul>
             <li><strong>Merge PDFs:</strong> Combine multiple documents into one.</li>
+            <li><strong>Multi-Select:</strong> Use Shift+Click to select ranges, or the "All" button. Drag multiple pages at once!</li>
             <li><strong>Images to PDF:</strong> Convert JPG and PNG images to PDF pages.</li>
             <li><strong>Rotate Pages:</strong> Easily rotate pages 90, 180, or 270 degrees.</li>
-            <li><strong>Organize:</strong> Drag and drop pages to reorder them.</li>
             <li><strong>Offline Capable:</strong> Save this app as an HTML file and use it without internet.</li>
-            <li><strong>Free & Open Source:</strong> No hidden costs, no watermarks.</li>
         </ul>
 
         <p style="font-size: 0.9rem; color: #666; margin-top: 20px;">
@@ -460,6 +501,9 @@
         <label>Target Zoom:</label>
         <input type="range" id="target-zoom" min="100" max="500" value="200">
     </div>
+    <div style="margin-left: auto; font-size: 0.9rem; color: #666;">
+        <i>Tip: Hold <b>Shift</b> to select a range of pages. Drag one selected page to move them all.</i>
+    </div>
 </div>
 
 <div class="workspace">
@@ -507,12 +551,13 @@
     const loaderText = document.getElementById('loader-text');
 
     const dataStore = {}; 
-    // Кэши для быстрого рендеринга при повороте
     const pdfDocCache = {}; 
     const imageCache = {}; 
 
     let fileCounter = 0;
     let imageCounter = 0;
+    let lastSelectedCard = null; // Для Shift+Click
+    let isDragging = false; // Флаг для предотвращения конфликта клика и драга
 
     // --- Зум ---
     const sourceZoom = document.getElementById('source-zoom');
@@ -522,13 +567,32 @@
     sourceZoom.addEventListener('input', (e) => root.style.setProperty('--source-card-width', e.target.value + 'px'));
     targetZoom.addEventListener('input', (e) => root.style.setProperty('--target-card-width', e.target.value + 'px'));
 
-    // --- Sortable ---
+    // --- Делегирование событий для выделения карточек (Event Delegation) ---
+    sourcesContainer.addEventListener('click', function(e) {
+        // Игнорируем клики на кнопки и заголовки
+        if (e.target.classList.contains('select-all-btn')) return;
+        if (e.target.closest('.source-header')) return;
+        
+        // Игнорируем если был драг
+        if (isDragging) return;
+        
+        const card = e.target.closest('.page-card');
+        if (!card) return;
+        
+        // Не обрабатываем карточки из target (хотя они не должны быть в sourcesContainer, но для надежности)
+        if (newDocArea.contains(card)) return;
+        
+        handleCardSelection(card, e);
+    });
+
+    // --- Sortable для Target Area ---
     new Sortable(newDocArea, {
         group: 'shared',
         animation: 150,
         ghostClass: 'sortable-ghost',
         onAdd: function (evt) {
             evt.item.removeAttribute('id');
+            evt.item.classList.remove('selected'); // Убираем выделение при падении
             if (!evt.item.dataset.rotation) {
                 evt.item.dataset.rotation = "0";
             }
@@ -555,13 +619,51 @@
             let currentRotation = parseInt(card.dataset.rotation || 0);
             currentRotation = (currentRotation + 90) % 360; 
             card.dataset.rotation = currentRotation;
-            
-            // Перерисовываем карточку с учетом нового поворота
             updateCardVisual(card);
         }
     });
 
-    // --- Функция перерисовки карточки (для превью) ---
+    // --- Логика выделения (Selection Logic) ---
+    function handleCardSelection(card, e) {
+        e.stopPropagation(); // Чтобы не сворачивался аккордеон
+
+        const container = card.closest('.page-list');
+        if (!container) return;
+        
+        const allCards = Array.from(container.querySelectorAll('.page-card'));
+
+        if (e.shiftKey && lastSelectedCard && container.contains(lastSelectedCard)) {
+            // Range selection
+            const start = allCards.indexOf(lastSelectedCard);
+            const end = allCards.indexOf(card);
+            
+            if (start === -1 || end === -1) {
+                // Fallback на одиночное выделение, если что-то пошло не так
+                card.classList.add('selected');
+                lastSelectedCard = card;
+            } else {
+                const low = Math.min(start, end);
+                const high = Math.max(start, end);
+                for (let i = low; i <= high; i++) {
+                    allCards[i].classList.add('selected');
+                }
+            }
+        } else if (e.ctrlKey || e.metaKey) {
+            // Toggle selection
+            card.classList.toggle('selected');
+            lastSelectedCard = card;
+        } else {
+            // Single selection (clear others in ALL sources)
+            document.querySelectorAll('.sources-panel .page-card.selected').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            lastSelectedCard = card;
+        }
+        
+        // Обновляем счетчики, чтобы убедиться, что стили границ корректны
+        updatePageCounters();
+    }
+
+    // --- Функция перерисовки карточки ---
     async function updateCardVisual(card) {
         const fid = card.dataset.fid;
         const pid = parseInt(card.dataset.pid);
@@ -574,33 +676,21 @@
             const pdfDoc = pdfDocCache[fid];
             if (pdfDoc) {
                 const page = await pdfDoc.getPage(pid);
-                // Запрашиваем viewport с учетом поворота
                 const viewport = page.getViewport({ scale: 1.0, rotation: rotation });
-                
                 canvas.width = viewport.width;
                 canvas.height = viewport.height;
-                
-                // Рендерим заново
                 await page.render({ canvasContext: context, viewport: viewport }).promise;
             }
         } else {
-            // Для изображений
             const img = imageCache[fid];
             if (img) {
                 const isRotated = rotation === 90 || rotation === 270;
-                // Если 90/270, меняем местами ширину и высоту canvas
                 canvas.width = isRotated ? img.height : img.width;
                 canvas.height = isRotated ? img.width : img.height;
-
-                // Очищаем и сохраняем контекст
                 context.clearRect(0, 0, canvas.width, canvas.height);
                 context.save();
-
-                // Смещаем центр и вращаем
                 context.translate(canvas.width / 2, canvas.height / 2);
                 context.rotate(rotation * Math.PI / 180);
-                
-                // Рисуем картинку (центрированно)
                 context.drawImage(img, -img.width / 2, -img.height / 2);
                 context.restore();
             }
@@ -639,18 +729,43 @@
         const fileId = `pdf_${fileCounter++}`;
         const buffer = await file.arrayBuffer();
         dataStore[fileId] = { type: 'pdf', buffer: buffer.slice(0) };
-
-        // Сохраняем документ в кэш для быстрого доступа при повороте
         const pdfDoc = await pdfjsLib.getDocument(buffer).promise;
         pdfDocCache[fileId] = pdfDoc;
 
         const fileDiv = document.createElement('div');
         fileDiv.className = 'source-file';
         
+        // Header with Select All button
         const header = document.createElement('div');
         header.className = 'source-header';
-        header.innerHTML = `<span>📄 ${file.name}</span><span>▼</span>`;
-        header.onclick = () => fileDiv.classList.toggle('collapsed');
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'source-title';
+        titleDiv.innerHTML = `<span>📄 ${file.name}</span>`;
+        
+        const actionsDiv = document.createElement('div');
+        
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.className = 'select-all-btn';
+        selectAllBtn.innerText = 'All';
+        selectAllBtn.title = 'Select all pages in this file';
+        selectAllBtn.onclick = (e) => {
+            e.stopPropagation();
+            const cards = fileDiv.querySelectorAll('.page-list .page-card');
+            cards.forEach(c => c.classList.add('selected'));
+            if(cards.length > 0) lastSelectedCard = cards[cards.length-1];
+            updatePageCounters();
+        };
+
+        const toggleIcon = document.createElement('span');
+        toggleIcon.innerText = '▼';
+
+        actionsDiv.append(selectAllBtn, toggleIcon);
+        header.append(titleDiv, actionsDiv);
+        
+        header.onclick = (e) => {
+            if(e.target !== selectAllBtn) fileDiv.classList.toggle('collapsed');
+        };
 
         const pageList = document.createElement('div');
         pageList.className = 'page-list';
@@ -661,12 +776,10 @@
         for (let i = 1; i <= pdfDoc.numPages; i++) {
             const page = await pdfDoc.getPage(i);
             const viewport = page.getViewport({ scale: 1.0 });
-
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
-
             await page.render({ canvasContext: context, viewport: viewport }).promise;
 
             const card = createCard(canvas, `Page ${i}`, fileId, i);
@@ -687,8 +800,30 @@
             
             const header = document.createElement('div');
             header.className = 'source-header images-header';
-            header.innerHTML = `<span>🖼️ Imported Images</span><span>▼</span>`;
-            header.onclick = () => imgContainer.classList.toggle('collapsed');
+            
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'source-title';
+            titleDiv.innerHTML = `<span>🖼️ Imported Images</span>`;
+
+            const actionsDiv = document.createElement('div');
+            const selectAllBtn = document.createElement('button');
+            selectAllBtn.className = 'select-all-btn';
+            selectAllBtn.innerText = 'All';
+            selectAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                const cards = imgContainer.querySelectorAll('.page-list .page-card');
+                cards.forEach(c => c.classList.add('selected'));
+                if(cards.length > 0) lastSelectedCard = cards[cards.length-1];
+                updatePageCounters();
+            };
+            const toggleIcon = document.createElement('span');
+            toggleIcon.innerText = '▼';
+            
+            actionsDiv.append(selectAllBtn, toggleIcon);
+            header.append(titleDiv, actionsDiv);
+            header.onclick = (e) => {
+                if(e.target !== selectAllBtn) imgContainer.classList.toggle('collapsed');
+            };
 
             pageList = document.createElement('div');
             pageList.className = 'page-list';
@@ -704,21 +839,14 @@
         const imgId = `img_${imageCounter++}`;
         const buffer = await file.arrayBuffer();
         const isPng = file.type === 'image/png';
-        dataStore[imgId] = { 
-            type: isPng ? 'png' : 'jpg', 
-            buffer: buffer.slice(0),
-            name: file.name
-        };
+        dataStore[imgId] = { type: isPng ? 'png' : 'jpg', buffer: buffer.slice(0), name: file.name };
 
         const img = new Image();
         const blob = new Blob([buffer], { type: file.type });
         const url = URL.createObjectURL(blob);
         
         img.onload = () => {
-            // Кэшируем объект Image для перерисовки
             imageCache[imgId] = img;
-
-            // Создаем canvas вместо img тега, чтобы унифицировать логику поворота
             const canvas = document.createElement('canvas');
             canvas.width = img.width;
             canvas.height = img.height;
@@ -745,6 +873,9 @@
             <div class="page-number">${labelText}</div>
         `;
         card.insertBefore(visualElement, card.querySelector('.remove-btn'));
+        
+        // УДАЛЕНО: card.addEventListener('click', ...) - теперь используется делегирование
+        
         return card;
     }
 
@@ -753,18 +884,79 @@
             group: { name: 'shared', pull: 'clone', put: false },
             sort: false,
             animation: 150,
+            onStart: function(evt) {
+                isDragging = true;
+            },
             onClone: function(evt) {
+                // Копируем canvas для визуального эффекта перетаскивания
                 const origCanvas = evt.item.querySelector('canvas');
                 const cloneCanvas = evt.clone.querySelector('canvas');
-                
-                // При клонировании canvas нужно вручную скопировать содержимое
                 if (origCanvas && cloneCanvas) {
                     cloneCanvas.width = origCanvas.width;
                     cloneCanvas.height = origCanvas.height;
                     cloneCanvas.getContext('2d').drawImage(origCanvas, 0, 0);
                 }
-                // Сбрасываем поворот у клона в источнике (визуально)
                 evt.clone.dataset.rotation = "0";
+                evt.clone.classList.remove('selected'); // Клон в источнике не должен быть выделен
+            },
+            onEnd: function(evt) {
+                // --- SIMULATED MULTI-DRAG LOGIC ---
+                // Если перетаскивание завершилось успешно в целевую зону
+                if (evt.to === newDocArea && evt.from !== newDocArea) {
+                    const droppedItem = evt.item; // Элемент, который уже упал в target
+                    const sourceList = evt.from;
+                    
+                    // Находим все выделенные элементы в исходном списке
+                    const selectedInSource = Array.from(sourceList.querySelectorAll('.page-card.selected'));
+                    
+                    // Если мы перетащили элемент, который был выделен, и есть другие выделенные
+                    if (selectedInSource.length > 0) {
+                        let referenceNode = droppedItem;
+                        
+                        // Проходим по всем выделенным элементам
+                        selectedInSource.forEach(sourceCard => {
+                            // Пропускаем тот, который мы только что перетащили (сравниваем ID)
+                            if (sourceCard.dataset.fid === droppedItem.dataset.fid && 
+                                sourceCard.dataset.pid === droppedItem.dataset.pid) {
+                                return;
+                            }
+
+                            // Клонируем остальные выделенные элементы
+                            const newCard = sourceCard.cloneNode(true);
+                            newCard.classList.remove('selected');
+                            newCard.removeAttribute('id');
+                            newCard.dataset.rotation = "0";
+
+                            // Копируем Canvas
+                            const srcCanvas = sourceCard.querySelector('canvas');
+                            const destCanvas = newCard.querySelector('canvas');
+                            if (srcCanvas && destCanvas) {
+                                destCanvas.width = srcCanvas.width;
+                                destCanvas.height = srcCanvas.height;
+                                destCanvas.getContext('2d').drawImage(srcCanvas, 0, 0);
+                            }
+                            
+                            // Вставляем после предыдущего добавленного
+                            newDocArea.insertBefore(newCard, referenceNode.nextSibling);
+                            referenceNode = newCard;
+                        });
+                    }
+                    
+                    // Убираем выделение с самого перетащенного элемента (в целевой зоне)
+                    droppedItem.classList.remove('selected');
+                }
+                
+                // ВАЖНО: Сбрасываем выделение в источнике после переноса
+                document.querySelectorAll('.sources-panel .page-card.selected')
+                    .forEach(c => c.classList.remove('selected'));
+                lastSelectedCard = null;
+
+                updatePageCounters();
+                
+                // Сбрасываем флаг драга с небольшой задержкой
+                setTimeout(() => {
+                    isDragging = false;
+                }, 50);
             }
         });
     }
@@ -786,7 +978,15 @@
                 badge.innerText = count;
                 badge.style.display = count > 0 ? 'block' : 'none';
             }
-            card.style.borderColor = count > 0 ? '#28a745' : '#ddd';
+            
+            // ВАЖНО: Если карточка выделена, мы не трогаем её border-color, 
+            // чтобы CSS класс .selected (синяя рамка) имел приоритет.
+            // Если не выделена - ставим зеленую или серую.
+            if (!card.classList.contains('selected')) {
+                card.style.borderColor = count > 0 ? '#28a745' : '#ddd';
+            } else {
+                card.style.borderColor = ''; // Сброс инлайн стиля, чтобы работал CSS
+            }
         });
     }
 
@@ -823,42 +1023,23 @@
                     const srcDoc = loadedPdfDocs[fid];
                     const [copiedPage] = await newPdf.copyPages(srcDoc, [pid - 1]);
 
-                    // --- ИСПРАВЛЕННАЯ ЛОГИКА ДЛЯ PDF ---
-                    
-                    // 1. Получаем СУЩЕСТВУЮЩИЙ поворот страницы
                     const existingRotation = copiedPage.getRotation().angle;
-                    
-                    // 2. Вычисляем СУММАРНЫЙ поворот
                     const totalRotation = (existingRotation + userRotation) % 360;
-                    
-                    // 3. Применяем суммарный поворот
                     copiedPage.setRotation(degrees(totalRotation));
                     
-                    // 4. Получаем ФИЗИЧЕСКИЕ размеры (они не зависят от rotation)
                     const { width: physicalW, height: physicalH } = copiedPage.getSize();
-                    
-                    // 5. Определяем, меняются ли местами ширина/высота визуально
                     const isSwapped = (totalRotation === 90 || totalRotation === 270);
-                    
-                    // 6. Вычисляем ВИЗУАЛЬНЫЕ размеры
                     const visualW = isSwapped ? physicalH : physicalW;
-                    // const visualH = isSwapped ? physicalW : physicalH; // не используется, но для понимания
 
                     if (shouldScale) {
-                        // 7. Масштаб рассчитываем относительно ВИЗУАЛЬНОЙ ширины
                         const scaleFactor = targetWidthVal / visualW;
-                        
-                        // 8. Масштабируем контент
                         copiedPage.scaleContent(scaleFactor, scaleFactor);
-                        
-                        // 9. Устанавливаем новые ФИЗИЧЕСКИЕ размеры (оба измерения масштабируются одинаково)
                         copiedPage.setSize(physicalW * scaleFactor, physicalH * scaleFactor);
                     }
                     
                     newPdf.addPage(copiedPage);
 
                 } else {
-                    // --- ЛОГИКА ДЛЯ ИЗОБРАЖЕНИЙ ---
                     let image;
                     if (dataItem.type === 'jpg') {
                         image = await newPdf.embedJpg(dataItem.buffer);
@@ -867,29 +1048,22 @@
                     }
 
                     const { width: imgW, height: imgH } = image;
-                    
-                    // Определяем визуальные размеры после поворота
                     const isRotated = userRotation === 90 || userRotation === 270;
                     const visualWidth = isRotated ? imgH : imgW;
                     const visualHeight = isRotated ? imgW : imgH;
 
                     let scale = 1;
                     if (shouldScale) {
-                        // Масштабируем относительно визуальной ширины
                         scale = targetWidthVal / visualWidth;
                     }
 
-                    // Размеры для отрисовки (scaled)
                     const drawW = imgW * scale;
                     const drawH = imgH * scale;
-                    
-                    // Размеры страницы (должны соответствовать визуальным размерам)
                     const pageW = visualWidth * scale;
                     const pageH = visualHeight * scale;
 
                     const page = newPdf.addPage([pageW, pageH]);
 
-                    // Вычисляем координаты для отрисовки с учетом поворота
                     let x = 0, y = 0;
                     if (userRotation === 0) { x = 0; y = 0; }
                     else if (userRotation === 90) { x = pageW; y = 0; }
